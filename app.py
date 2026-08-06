@@ -47,21 +47,19 @@ if user:
     with st.chat_message("user"):
         st.markdown(user)
 
-    # Temporary bot reply
-    # Detect user intent
+    # ==========================================
+    # NLP
+    # ==========================================
+
     intent = detect_intent(user)
-
     train_number = extract_train_number(user)
-
     station_code = extract_station_code(user)
-
-    print("Station Code:", station_code)
     source, destination = extract_source_destination(user)
-
 
     # ==========================================
     # TRAIN DETAILS
     # ==========================================
+
     if intent == "train":
 
         train = get_train_by_number(train_number)
@@ -74,11 +72,11 @@ if user:
     # ==========================================
     # STATION DETAILS
     # ==========================================
+
     elif intent == "station":
 
         if station_code:
 
-            # If extract_station_code returns a list, take the first code
             if isinstance(station_code, list):
                 code = station_code[0]
             else:
@@ -97,6 +95,7 @@ if user:
     # ==========================================
     # TRAIN SCHEDULE
     # ==========================================
+
     elif intent == "schedule":
 
         if train_number:
@@ -110,61 +109,68 @@ if user:
 
         else:
             reply = "❌ Please enter a valid train number."
-    # ==========================================
-    # DEBUG
-    # ==========================================
 
     # ==========================================
     # TRAINS BETWEEN TWO CITIES
     # ==========================================
-    if intent == "between":
 
-        source_df = get_station_codes(source)
+    elif intent == "between":
 
-        if len(source_df) > 0:
-            source_codes = source_df["code"].tolist()
+        if source and destination:
+
+            source_df = get_station_codes(source)
+
+            if len(source_df) > 0:
+                source_codes = source_df["code"].tolist()
+            else:
+                source_codes = [source.upper()]
+
+            destination_df = get_station_codes(destination)
+
+            if len(destination_df) > 0:
+                destination_codes = destination_df["code"].tolist()
+            else:
+                destination_codes = [destination.upper()]
+
+            trains = get_trains_between_route(
+                source_codes,
+                destination_codes
+            )
+
+            trains = trains.drop_duplicates(subset=["number"])
+
+            if len(trains) == 0:
+
+                reply = "❌ No trains found."
+
+            else:
+
+                reply = f"✅ Found {len(trains)} train(s)."
+
+                st.dataframe(trains)
+
         else:
-            source_codes = [source.upper()]
 
-        destination_df = get_station_codes(destination)
+            reply = "❌ Please enter both source and destination."
 
-        if len(destination_df) > 0:
-            destination_codes = destination_df["code"].tolist()
-        else:
-            destination_codes = [destination.upper()]
+    # ==========================================
+    # UNKNOWN
+    # ==========================================
 
-        trains = get_trains_between_route(
-            source_codes,
-            destination_codes
-        )
-
-        trains = trains.drop_duplicates(subset=["number"])
-
-        if len(trains) == 0:
-
-            st.error("No trains found.")
-
-        else:
-
-            st.success(f"Found {len(trains)} trains")
-
-            st.dataframe(trains)
     else:
 
-        reply = f"""
-    Intent : {intent}
+        reply = "❌ Sorry, I didn't understand your question."
 
-    Train Number : {train_number}
+    # ==========================================
+    # DISPLAY REPLY
+    # ==========================================
 
-    Station Code : {station_code}
-
-    Source : {source}
-
-    Destination : {destination}
-    """
     with st.chat_message("assistant"):
         st.markdown(reply)
 
     st.session_state.messages.append(
-        {"role": "assistant", "content": reply}
+        {
+            "role": "assistant",
+            "content": reply
+        }
     )

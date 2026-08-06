@@ -213,8 +213,8 @@ def get_trains_between_route(source_codes, destination_codes):
             SELECT DISTINCT
                 t.number,
                 t.name,
-                s1.station_name AS source_station,
-                s2.station_name AS destination_station,
+               t.from_station_name AS source_station,
+t.to_station_name AS destination_station,
                 t.type,
                 t.distance
 
@@ -229,6 +229,7 @@ def get_trains_between_route(source_codes, destination_codes):
             WHERE
                 s1.station_code = ?
                 AND s2.station_code = ?
+                AND s1.id < s2.id
             """
 
             df = pd.read_sql(
@@ -236,6 +237,8 @@ def get_trains_between_route(source_codes, destination_codes):
                 conn,
                 params=(source, destination)
             )
+            print("Source:", source, "Destination:", destination)
+            print(df)
 
             if not df.empty:
                 all_trains = pd.concat([all_trains, df])

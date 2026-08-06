@@ -1,9 +1,21 @@
+# Environment files (API keys, secrets)
 .env
 
+# Python virtual environments
 .venv/
 venv/
 
+# PyCharm files
 .idea/
 
+# Python cache files
 __pycache__/
 *.pyc
+
+# Database files
+Database/*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
