@@ -192,62 +192,124 @@ def get_trains_between(source_list, destination_list):
 
     return all_trains
 
-# ==========================================
-# Find trains using the schedules table
-# ==========================================
-def get_trains_between_route(source_codes, destination_codes):
 
-    print(">>> get_trains_between_route() CALLED <<<")
+# ==========================================
+# Find trains between two stations/cities
+# ==========================================
+
+def get_trains_between_route(source_codes, destination_codes):
 
     conn = sqlite3.connect("Database/railway.db")
 
+    query = """
+    SELECT DISTINCT
+        t.number AS number,
+        t.name AS name,
+        t.from_station_name AS source_station,
+        t.to_station_name AS destination_station,
+        t.type AS type,
+        t.distance AS distance
 
+    FROM schedules s1
 
-    all_trains = pd.DataFrame()
+    JOIN schedules s2
+        ON s1.train_number = s2.train_number
+
+    JOIN trains t
+        ON CAST(t.number AS TEXT) = CAST(s1.train_number AS TEXT)
+
+    WHERE
+        s1.station_code = ?
+        AND s2.station_code = ?
+        AND s1.id < s2.id
+    """
+
+    results = []
 
     for source in source_codes:
 
         for destination in destination_codes:
-
-            query = """
-            SELECT DISTINCT
-                t.number,
-                t.name,
-               t.from_station_name AS source_station,
-t.to_station_name AS destination_station,
-                t.type,
-                t.distance
-
-            FROM schedules s1
-
-            JOIN schedules s2
-                ON s1.train_number = s2.train_number
-
-            JOIN trains t
-                ON t.number = s1.train_number
-
-            WHERE
-                s1.station_code = ?
-                AND s2.station_code = ?
-                AND s1.id < s2.id
-            """
 
             df = pd.read_sql(
                 query,
                 conn,
                 params=(source, destination)
             )
-            print("Source:", source, "Destination:", destination)
-            print(df)
 
             if not df.empty:
-                all_trains = pd.concat([all_trains, df])
+                results.append(df)
 
     conn.close()
 
-    all_trains = all_trains.drop_duplicates(subset=["number"])
+    # Nothing found
+    if not results:
+        return pd.DataFrame(columns=[
+            "number",
+            "name",
+            "source_station",
+            "destination_station",
+            "type",
+            "distance"
+        ])
 
-    return all_trains.sort_values("number").reset_index(drop=True)
+    # Combine results
+    all_trains = pd.concat(
+        results,
+        ignore_index=True
+    )
+
+    # Remove duplicate trains
+    all_trains = all_trains.drop_duplicates(
+        subset=["number"]
+    )
+
+    # Sort
+    all_trains = all_trains.sort_values(
+        by="number"
+    )
+
+    return all_trains.reset_index(drop=True)
+    # ------------------------------------------
+    # NO TRAINS FOUND
+    # ------------------------------------------
+
+    if len(results) == 0:
+
+        return pd.DataFrame(columns=[
+            "number",
+            "name",
+            "source_station",
+            "destination_station",
+            "type",
+            "distance"
+        ])
+
+    # ------------------------------------------
+    # COMBINE RESULTS
+    # ------------------------------------------
+
+    all_trains = pd.concat(
+        results,
+        ignore_index=True
+    )
+
+    # ------------------------------------------
+    # REMOVE DUPLICATES
+    # ------------------------------------------
+
+    all_trains = all_trains.drop_duplicates(
+        subset=["number"]
+    )
+
+    # ------------------------------------------
+    # SORT
+    # ------------------------------------------
+
+    all_trains = all_trains.sort_values(
+        by="number"
+    )
+
+    return all_trains.reset_index(drop=True)
 
 # ==========================================
 # Testing

@@ -1,8 +1,10 @@
 import re
 
-# -----------------------------
-# Train Number
-# -----------------------------
+
+# =========================================================
+# TRAIN NUMBER
+# =========================================================
+
 def extract_train_number(text):
 
     match = re.search(r"\b\d{5}\b", text)
@@ -13,67 +15,152 @@ def extract_train_number(text):
     return None
 
 
-# -----------------------------
-# Station Code
-# -----------------------------
+# =========================================================
+# STATION CODE
+# =========================================================
+
 def extract_station_code(text):
 
-    matches = re.findall(r"\b[A-Z]{2,5}\b", text.upper())
+    matches = re.findall(
+        r"\b[A-Z]{2,5}\b",
+        text.upper()
+    )
 
     return matches
 
 
-# -----------------------------
-# Source & Destination
-# -----------------------------
+# =========================================================
+# SOURCE & DESTINATION
+# =========================================================
+
 def extract_source_destination(text):
 
-    # Mumbai to Delhi
-    match = re.search(r"(.+?)\s+to\s+(.+)", text, re.IGNORECASE)
+    text = text.strip()
+
+    # -----------------------------------------------------
+    # 1. "Trains from Mumbai to Goa"
+    # -----------------------------------------------------
+
+    match = re.search(
+        r"\bfrom\s+(.+?)\s+to\s+(.+?)(?:\s*$|\?)",
+        text,
+        re.IGNORECASE
+    )
 
     if match:
-        return match.group(1).strip(), match.group(2).strip()
 
-    # Trains from Mumbai to Delhi
-    match = re.search(r"from\s+(.+?)\s+to\s+(.+)", text, re.IGNORECASE)
+        source = match.group(1).strip()
+        destination = match.group(2).strip()
+
+        return source, destination
+
+
+    # -----------------------------------------------------
+    # 2. "Trains between Mumbai and Goa"
+    # -----------------------------------------------------
+
+    match = re.search(
+        r"\bbetween\s+(.+?)\s+and\s+(.+?)(?:\s*$|\?)",
+        text,
+        re.IGNORECASE
+    )
 
     if match:
-        return match.group(1).strip(), match.group(2).strip()
 
-    # Trains between Mumbai and Delhi
-    match = re.search(r"between\s+(.+?)\s+and\s+(.+)", text, re.IGNORECASE)
+        source = match.group(1).strip()
+        destination = match.group(2).strip()
+
+        return source, destination
+
+
+    # -----------------------------------------------------
+    # 3. "Mumbai to Goa"
+    # -----------------------------------------------------
+
+    match = re.search(
+        r"^(.+?)\s+to\s+(.+?)(?:\s*$|\?)",
+        text,
+        re.IGNORECASE
+    )
 
     if match:
-        return match.group(1).strip(), match.group(2).strip()
+
+        source = match.group(1).strip()
+        destination = match.group(2).strip()
+
+        # Remove common words from beginning
+        source = re.sub(
+            r"^(trains?|railway|show|find|search)\s+",
+            "",
+            source,
+            flags=re.IGNORECASE
+        ).strip()
+
+        return source, destination
+
 
     return None, None
 
 
-# -----------------------------
-# Intent Detection
-# -----------------------------
+# =========================================================
+# INTENT DETECTION
+# =========================================================
+
 def detect_intent(text):
 
-    text = text.lower()
+    text = text.lower().strip()
 
-    # Train between two places
-    if "between" in text or " to " in text or ("from" in text and "to" in text):
+
+    # -----------------------------------------------------
+    # TRAIN BETWEEN TWO PLACES
+    # -----------------------------------------------------
+
+    if (
+        "between" in text
+        or re.search(r"\bfrom\b.+\bto\b", text)
+        or re.search(r"\bto\b", text)
+    ):
         return "between"
 
-    # Schedule
-    elif "schedule" in text or "timetable" in text or "timing" in text:
+
+    # -----------------------------------------------------
+    # SCHEDULE
+    # -----------------------------------------------------
+
+    elif (
+        "schedule" in text
+        or "timetable" in text
+        or "timing" in text
+    ):
         return "schedule"
 
-    # Station
+
+    # -----------------------------------------------------
+    # STATION
+    # -----------------------------------------------------
+
     elif "station" in text:
         return "station"
 
-    # Train details
-    elif "train" in text or "detail" in text or "information" in text:
+
+    # -----------------------------------------------------
+    # TRAIN DETAILS
+    # -----------------------------------------------------
+
+    elif (
+        "train" in text
+        or "detail" in text
+        or "information" in text
+    ):
         return "train"
 
-    # If user enters only a train number (e.g. 04601)
+
+    # -----------------------------------------------------
+    # ONLY TRAIN NUMBER
+    # -----------------------------------------------------
+
     elif re.search(r"\b\d{5}\b", text):
         return "train"
+
 
     return "unknown"
