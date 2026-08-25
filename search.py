@@ -197,52 +197,71 @@ def get_trains_between(source_list, destination_list):
 # Find trains between two stations/cities
 # ==========================================
 
+# ==========================================
+# Find trains between two cities
+# Train must START in source city
+# and END in destination city
+# ==========================================
+
 def get_trains_between_route(source_codes, destination_codes):
 
     conn = sqlite3.connect("Database/railway.db")
 
     query = """
-    SELECT DISTINCT
+    SELECT
         t.number AS number,
         t.name AS name,
-        t.from_station_name AS source_station,
-        t.to_station_name AS destination_station,
+        first_station.station_name AS source_station,
+        last_station.station_name AS destination_station,
         t.type AS type,
         t.distance AS distance
 
-    FROM schedules s1
+    FROM trains t
 
-    JOIN schedules s2
-        ON s1.train_number = s2.train_number
+    JOIN schedules first_station
+        ON first_station.train_number = t.number
 
-    JOIN trains t
-        ON CAST(t.number AS TEXT) = CAST(s1.train_number AS TEXT)
+    JOIN schedules last_station
+        ON last_station.train_number = t.number
 
     WHERE
-        s1.station_code = ?
-        AND s2.station_code = ?
-        AND s1.id < s2.id
+        first_station.id = (
+            SELECT MIN(s.id)
+            FROM schedules s
+            WHERE s.train_number = t.number
+        )
+
+        AND last_station.id = (
+            SELECT MAX(s.id)
+            FROM schedules s
+            WHERE s.train_number = t.number
+        )
+
+        AND first_station.station_code IN (
+            SELECT value
+            FROM json_each(?)
+        )
+
+        AND last_station.station_code IN (
+            SELECT value
+            FROM json_each(?)
+        )
     """
 
-    results = []
+    import json
 
-    for source in source_codes:
-
-        for destination in destination_codes:
-
-            df = pd.read_sql(
-                query,
-                conn,
-                params=(source, destination)
-            )
-
-            if not df.empty:
-                results.append(df)
+    df = pd.read_sql(
+        query,
+        conn,
+        params=(
+            json.dumps(source_codes),
+            json.dumps(destination_codes)
+        )
+    )
 
     conn.close()
 
-    # Nothing found
-    if not results:
+    if df.empty:
         return pd.DataFrame(columns=[
             "number",
             "name",
@@ -252,23 +271,15 @@ def get_trains_between_route(source_codes, destination_codes):
             "distance"
         ])
 
-    # Combine results
-    all_trains = pd.concat(
-        results,
-        ignore_index=True
-    )
-
-    # Remove duplicate trains
-    all_trains = all_trains.drop_duplicates(
+    df = df.drop_duplicates(
         subset=["number"]
     )
 
-    # Sort
-    all_trains = all_trains.sort_values(
+    df = df.sort_values(
         by="number"
     )
 
-    return all_trains.reset_index(drop=True)
+    return df.reset_index(drop=True)
     # ------------------------------------------
     # NO TRAINS FOUND
     # ------------------------------------------
