@@ -1,19 +1,24 @@
-# ============================================================
-# AI ROUTER - INDIAN RAILWAY ASSISTANT
-# ============================================================
-
 import os
 import json
-import pandas as pd
+import re
 
 from dotenv import load_dotenv
 from groq import Groq
 
-from city_mapping import get_station_codes
+from railway_tools import (
+    search_train,
+    search_route,
+    search_schedule,
+    search_station,
+    search_train_stations,
+    search_trains_from_station,
+    search_trains_to_station,
+    database_status
+)
 
 
 # ============================================================
-# LOAD ENVIRONMENT
+# CONFIGURATION
 # ============================================================
 
 load_dotenv()
@@ -21,561 +26,680 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
-    raise RuntimeError(
-        "GROQ_API_KEY was not found. "
-        "Please add it to your .env file."
+    raise ValueError(
+        "GROQ_API_KEY not found.\n"
+        "Please add GROQ_API_KEY=your_key to .env"
     )
 
 
 client = Groq(api_key=GROQ_API_KEY)
 
-
-# ============================================================
-# IMPORT YOUR DATABASE FUNCTIONS
-# ============================================================
-
-from search import (
-    get_train_by_number,
-    get_schedule,
-    get_station,
-    get_trains_between_route
-)
+MODEL = "openai/gpt-oss-120b"
 
 
 # ============================================================
-# HELPER
+# AI INTENT PROMPT
 # ============================================================
 
-def dataframe_to_json(df):
+INTENT_PROMPT = """
+You are the intent detection system for an Indian Railway
+AI Assistant.
 
-    if df is None:
-        return "[]"
+Your job is ONLY to understand what the user wants.
 
-    if isinstance(df, pd.DataFrame):
+Return ONLY valid JSON.
+Do not return markdown.
+Do not return explanations.
 
-        if df.empty:
-            return "[]"
+Available intents:
 
-        return json.dumps(
-            df.fillna("").to_dict(orient="records"),
-            default=str
-        )
+1. train
+   Use when the user asks about a particular train.
 
-    return json.dumps(df, default=str)
+2. route
+   Use when the user asks for trains between a source
+   and destination.
+
+3. schedule
+   Use when the user asks about the timetable or schedule
+   of a particular train.
+
+4. train_stations
+   Use when the user asks where a train stops or which
+   stations a train visits.
+
+5. station
+   Use when the user asks about a railway station.
+
+6. trains_from
+   Use when the user asks which trains start from a station.
+
+7. trains_to
+   Use when the user asks which trains go to or arrive at
+   a station.
+
+8. database
+   Use ONLY if the user explicitly asks about the database,
+   such as number of train records or station records.
+
+9. general
+   Use for greetings, help, capabilities, or general
+   railway-related conversation.
+
+10. unknown
+   Use when the request is unrelated to railway information
+   or cannot be understood.
+
+JSON FORMAT:
+
+{
+    "intent": "route",
+    "source": "Mumbai",
+    "destination": "Goa",
+    "train_number": "",
+    "station": "",
+    "search_text": ""
+}
+
+RULES:
+
+- For "Mumbai to Goa":
+  intent = route
+  source = Mumbai
+  destination = Goa
+
+- For "Which trains go to Goa?":
+  intent = trains_to
+  station = Goa
+
+- For "What trains go to Mumbai?":
+  intent = trains_to
+  station = Mumbai
+
+- For "What trains start from Mumbai?":
+  intent = trains_from
+  station = Mumbai
+
+- For "Tell me about train 10103":
+  intent = train
+  train_number = 10103
+
+- For "What is train 10103?":
+  intent = train
+  train_number = 10103
+
+- For "Show schedule of 10103":
+  intent = schedule
+  train_number = 10103
+
+- For "When does 10103 arrive?":
+  intent = schedule
+  train_number = 10103
+
+- For "Where does 10103 stop?":
+  intent = train_stations
+  train_number = 10103
+
+- For "Which stations does 10103 visit?":
+  intent = train_stations
+  train_number = 10103
+
+- For "What is Karmali station?":
+  intent = station
+  station = Karmali
+
+- For "Tell me about Madgaon":
+  intent = station
+  station = Madgaon
+
+- For "How many trains are in your database?":
+  intent = database
+
+- For "Hello":
+  intent = general
+
+- For "What can you do?":
+  intent = general
+
+Never invent train numbers or station names.
+"""
 
 
 # ============================================================
-# TOOL 1 - TRAIN SEARCH
+# GET AI INTENT
 # ============================================================
 
-def train_search(train_number):
+def get_intent(question):
+
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": INTENT_PROMPT
+            },
+            {
+                "role": "user",
+                "content": question
+            }
+        ],
+        temperature=0,
+        max_tokens=300
+    )
+
+    text = response.choices[0].message.content.strip()
+
+    # --------------------------------------------------------
+    # Remove markdown JSON fences if model adds them
+    # --------------------------------------------------------
+
+    text = text.replace("```json", "")
+    text = text.replace("```", "")
+    text = text.strip()
 
     try:
 
-        result = get_train_by_number(str(train_number))
+        data = json.loads(text)
 
-        return dataframe_to_json(result)
+    except json.JSONDecodeError:
 
-    except Exception as e:
+        # Try to find JSON inside the response
+        match = re.search(
+            r"\{.*\}",
+            text,
+            re.DOTALL
+        )
 
-        return json.dumps({
-            "error": str(e)
-        })
+        if match:
+
+            try:
+                data = json.loads(match.group(0))
+
+            except json.JSONDecodeError:
+
+                return {
+                    "intent": "unknown",
+                    "source": "",
+                    "destination": "",
+                    "train_number": "",
+                    "station": "",
+                    "search_text": ""
+                }
+
+        else:
+
+            return {
+                "intent": "unknown",
+                "source": "",
+                "destination": "",
+                "train_number": "",
+                "station": "",
+                "search_text": ""
+            }
+
+    # --------------------------------------------------------
+    # Make sure all expected fields exist
+    # --------------------------------------------------------
+
+    fields = [
+        "intent",
+        "source",
+        "destination",
+        "train_number",
+        "station",
+        "search_text"
+    ]
+
+    for field in fields:
+
+        if field not in data:
+            data[field] = ""
+
+    return data
 
 
 # ============================================================
-# TOOL 2 - TRAIN SCHEDULE
+# EXECUTE RAILWAY SEARCH
 # ============================================================
 
-def schedule_search(train_number):
+def execute_search(intent):
 
     try:
 
-        result = get_schedule(str(train_number))
+        # ----------------------------------------------------
+        # TRAIN
+        # ----------------------------------------------------
 
-        return dataframe_to_json(result)
+        if intent["intent"] == "train":
+
+            train_number = intent.get(
+                "train_number",
+                ""
+            )
+
+            search_text = intent.get(
+                "search_text",
+                ""
+            )
+
+            value = train_number or search_text
+
+            if not value:
+
+                return {
+                    "error": "Please provide a train number or name."
+                }
+
+            return search_train(value)
+
+        # ----------------------------------------------------
+        # ROUTE
+        # ----------------------------------------------------
+
+        elif intent["intent"] == "route":
+
+            source = intent.get(
+                "source",
+                ""
+            )
+
+            destination = intent.get(
+                "destination",
+                ""
+            )
+
+            if not source or not destination:
+
+                return {
+                    "error": (
+                        "Please provide both source "
+                        "and destination."
+                    )
+                }
+
+            return search_route(
+                source,
+                destination
+            )
+
+        # ----------------------------------------------------
+        # SCHEDULE
+        # ----------------------------------------------------
+
+        elif intent["intent"] == "schedule":
+
+            train_number = intent.get(
+                "train_number",
+                ""
+            )
+
+            if not train_number:
+
+                return {
+                    "error": "Please provide a train number."
+                }
+
+            return search_schedule(
+                train_number
+            )
+
+        # ----------------------------------------------------
+        # TRAIN STATIONS
+        # ----------------------------------------------------
+
+        elif intent["intent"] == "train_stations":
+
+            train_number = intent.get(
+                "train_number",
+                ""
+            )
+
+            if not train_number:
+
+                return {
+                    "error": "Please provide a train number."
+                }
+
+            return search_train_stations(
+                train_number
+            )
+
+        # ----------------------------------------------------
+        # STATION
+        # ----------------------------------------------------
+
+        elif intent["intent"] == "station":
+
+            station = intent.get(
+                "station",
+                ""
+            )
+
+            search_text = intent.get(
+                "search_text",
+                ""
+            )
+
+            value = station or search_text
+
+            if not value:
+
+                return {
+                    "error": "Please provide a station name."
+                }
+
+            return search_station(value)
+
+        # ----------------------------------------------------
+        # TRAINS FROM
+        # ----------------------------------------------------
+
+        elif intent["intent"] == "trains_from":
+
+            station = intent.get(
+                "station",
+                ""
+            )
+
+            if not station:
+
+                return {
+                    "error": "Please provide a station."
+                }
+
+            return search_trains_from_station(
+                station
+            )
+
+        # ----------------------------------------------------
+        # TRAINS TO
+        # ----------------------------------------------------
+
+        elif intent["intent"] == "trains_to":
+
+            station = intent.get(
+                "station",
+                ""
+            )
+
+            if not station:
+
+                return {
+                    "error": "Please provide a station."
+                }
+
+            return search_trains_to_station(
+                station
+            )
+
+        # ----------------------------------------------------
+        # DATABASE
+        # ----------------------------------------------------
+
+        elif intent["intent"] == "database":
+
+            return database_status()
+
+        # ----------------------------------------------------
+        # GENERAL
+        # ----------------------------------------------------
+
+        elif intent["intent"] == "general":
+
+            return None
+
+        # ----------------------------------------------------
+        # UNKNOWN
+        # ----------------------------------------------------
+
+        return None
 
     except Exception as e:
 
-        return json.dumps({
+        return {
             "error": str(e)
-        })
-
-
-# ============================================================
-# TOOL 3 - STATION SEARCH
-# ============================================================
-
-def station_search(station):
-
-    try:
-
-        station_text = str(station).strip()
-
-        # First try city/station mapping
-        codes = get_station_codes(station_text)
-
-        # If mapping returns station codes,
-        # search each station code
-        if codes:
-
-            results = []
-
-            for code in codes:
-
-                result = get_station(code)
-
-                if result is not None:
-
-                    results.append(result)
-
-            if results:
-
-                combined = pd.concat(
-                    results,
-                    ignore_index=True
-                )
-
-                combined = combined.drop_duplicates()
-
-                return dataframe_to_json(combined)
-
-        # Otherwise search the provided value directly
-        result = get_station(station_text.upper())
-
-        return dataframe_to_json(result)
-
-    except Exception as e:
-
-        return json.dumps({
-            "error": str(e)
-        })
-
-
-# ============================================================
-# TOOL 4 - ROUTE SEARCH
-# ============================================================
-
-def route_search(source, destination):
-
-    try:
-
-        source = str(source).strip()
-        destination = str(destination).strip()
-
-        source_codes = get_station_codes(source)
-        destination_codes = get_station_codes(destination)
-
-        # If source is already a station code
-        if not source_codes:
-            source_codes = [source.upper()]
-
-        # If destination is already a station code
-        if not destination_codes:
-            destination_codes = [destination.upper()]
-
-        result = get_trains_between_route(
-            source_codes,
-            destination_codes
-        )
-
-        return dataframe_to_json(result)
-
-    except Exception as e:
-
-        return json.dumps({
-            "error": str(e)
-        })
-
-
-# ============================================================
-# GROQ TOOL DEFINITIONS
-# ============================================================
-
-TOOLS = [
-
-    {
-        "type": "function",
-
-        "function": {
-
-            "name": "train_search",
-
-            "description": (
-                "Search for information about a specific train "
-                "using its train number."
-            ),
-
-            "parameters": {
-
-                "type": "object",
-
-                "properties": {
-
-                    "train_number": {
-                        "type": "string",
-                        "description": (
-                            "The 5 digit Indian railway train number."
-                        )
-                    }
-
-                },
-
-                "required": ["train_number"]
-            }
         }
-    },
-
-    {
-        "type": "function",
-
-        "function": {
-
-            "name": "route_search",
-
-            "description": (
-                "Find trains travelling from a source city or station "
-                "to a destination city or station."
-            ),
-
-            "parameters": {
-
-                "type": "object",
-
-                "properties": {
-
-                    "source": {
-                        "type": "string",
-                        "description": (
-                            "Starting city or railway station."
-                        )
-                    },
-
-                    "destination": {
-                        "type": "string",
-                        "description": (
-                            "Destination city or railway station."
-                        )
-                    }
-
-                },
-
-                "required": [
-                    "source",
-                    "destination"
-                ]
-            }
-        }
-    },
-
-    {
-        "type": "function",
-
-        "function": {
-
-            "name": "schedule_search",
-
-            "description": (
-                "Find the complete station-by-station schedule "
-                "for a train."
-            ),
-
-            "parameters": {
-
-                "type": "object",
-
-                "properties": {
-
-                    "train_number": {
-                        "type": "string",
-                        "description": (
-                            "The train number."
-                        )
-                    }
-
-                },
-
-                "required": ["train_number"]
-            }
-        }
-    },
-
-    {
-        "type": "function",
-
-        "function": {
-
-            "name": "station_search",
-
-            "description": (
-                "Find information about a railway station using "
-                "its name or station code."
-            ),
-
-            "parameters": {
-
-                "type": "object",
-
-                "properties": {
-
-                    "station": {
-                        "type": "string",
-                        "description": (
-                            "Railway station name or station code."
-                        )
-                    }
-
-                },
-
-                "required": ["station"]
-            }
-        }
-    }
-]
 
 
 # ============================================================
-# TOOL EXECUTOR
+# FINAL AI RESPONSE
 # ============================================================
 
-def execute_tool(tool_name, arguments):
+def generate_answer(
+    question,
+    intent,
+    database_result,
+    conversation=None
+):
 
-    if tool_name == "train_search":
-
-        return train_search(
-            arguments["train_number"]
-        )
-
-    elif tool_name == "route_search":
-
-        return route_search(
-            arguments["source"],
-            arguments["destination"]
-        )
-
-    elif tool_name == "schedule_search":
-
-        return schedule_search(
-            arguments["train_number"]
-        )
-
-    elif tool_name == "station_search":
-
-        return station_search(
-            arguments["station"]
-        )
-
-    return json.dumps({
-        "error": "Unknown tool"
-    })
-
-
-# ============================================================
-# MAIN AI FUNCTION
-# ============================================================
-
-def ask_railway_ai(user_message, conversation=None):
     if conversation is None:
         conversation = []
 
-    system_message = """
-    You are Railway Assistant, an intelligent Indian Railway chatbot.
+    # --------------------------------------------------------
+    # GENERAL QUESTIONS
+    # --------------------------------------------------------
 
-    Your job is to help users with:
+    if database_result is None:
 
-    1. Train information
-    2. Trains between cities or stations
-    3. Train schedules
-    4. Railway station information
+        prompt = f"""
+You are Railway Assistant.
 
-    IMPORTANT RULES:
+User question:
+{question}
 
-    - Use the provided tools to obtain railway information.
-    - NEVER invent train numbers, train names, stations, schedules,
-      distances or railway information.
-    - The railway database is the source of truth.
-    - If the user asks for trains between two places,
-      use route_search.
-    - If the user gives a train number and asks for information,
-      use train_search.
-    - If the user asks for a schedule,
-      use schedule_search.
-    - If the user asks about a station,
-      use station_search.
-    - If required information is missing, politely ask the user
-      for the missing information.
-    - If the request is not related to Indian Railways, politely
-      explain that you are a railway assistant.
-    - Keep answers clear and easy to understand.
-    - Only offer information that can be obtained using the available tools.
-    - Do not claim that fare, seat availability, live train status, booking,
-      or other information is available unless a tool provides it.
-    - If the user asks for information that the tools cannot provide,
-      clearly say that the information is not currently available.
-    - Do not guess or make up missing railway information.
-    - When showing route results, use the actual source and destination
-      stations returned by the railway database.
-    - Do not expose tool names or internal database details to the user.
+Answer naturally and professionally.
 
-    Examples:
+You can help with:
+- Train information
+- Train routes
+- Train schedules
+- Train stops
+- Railway stations
+- Trains from a station
+- Trains going to a station
+- Railway database information
 
-    User: "Mumbai to Goa"
-    Action: route_search
+If the user is greeting you, greet them.
 
-    User: "Find trains from Mumbai to Delhi"
-    Action: route_search
+If the user asks what you can do, explain your capabilities.
 
-    User: "Tell me about train 10103"
-    Action: train_search
+If the user wants to travel but did not provide enough
+information, ask for the source and destination.
 
-    User: "Show schedule of 10103"
-    Action: schedule_search
+If the question is unrelated to Indian Railways, politely
+explain that you are a Railway Assistant.
 
-    User: "What is Karmali station?"
-    Action: station_search
+Do not invent railway facts.
+"""
 
-    User: "I want to travel"
-    Response: Ask for source and destination.
-    """
+    else:
+
+        # Convert database result to JSON
+        result_text = json.dumps(
+            database_result,
+            ensure_ascii=False,
+            default=str
+        )
+
+        prompt = f"""
+You are a professional Indian Railway Assistant.
+
+User question:
+{question}
+
+Detected intent:
+{intent.get("intent")}
+
+Verified railway database result:
+{result_text}
+
+IMPORTANT:
+
+The database result is the source of truth.
+
+NEVER invent railway information.
+
+Use ONLY information present in the database result.
+
+If the database result says no information was found,
+clearly tell the user that no matching information was found.
+
+Give the answer in a clear and readable format.
+
+For multiple trains, use a clean numbered list or table.
+
+For a schedule, clearly show:
+- Station
+- Arrival
+- Departure
+- Day
+
+For train information, clearly show relevant details.
+
+For route searches, show:
+- Train number
+- Train name
+- Source
+- Destination
+- Type
+- Distance
+
+Do not mention internal Python functions,
+database implementation, AI routing,
+or technical details.
+
+Do not say that you used a tool.
+
+Answer the user's actual question directly.
+"""
 
     messages = [
-
         {
             "role": "system",
-            "content": system_message
+            "content": prompt
         }
-
     ]
 
-    # Add previous conversation
-    for message in conversation[-10:]:
+    # --------------------------------------------------------
+    # ADD SHORT CONVERSATION HISTORY
+    # --------------------------------------------------------
 
-        messages.append({
-            "role": message["role"],
-            "content": message["content"]
-        })
+    for message in conversation[-6:]:
 
-    # Add current user message
+        if (
+            isinstance(message, dict)
+            and "role" in message
+            and "content" in message
+        ):
+
+            messages.append({
+                "role": message["role"],
+                "content": str(message["content"])
+            })
+
+    # --------------------------------------------------------
+    # CURRENT QUESTION
+    # --------------------------------------------------------
+
     messages.append({
         "role": "user",
-        "content": user_message
+        "content": question
     })
 
-
-    # ========================================================
-    # FIRST GROQ REQUEST
-    # ========================================================
-
     response = client.chat.completions.create(
-
-        model="openai/gpt-oss-20b",
-
+        model=MODEL,
         messages=messages,
-
-        tools=TOOLS,
-
-        tool_choice="auto",
-
         temperature=0.2,
-
-        max_tokens=1000
+        max_tokens=2000
     )
 
-
-    assistant_message = response.choices[0].message
-
-
-    # ========================================================
-    # NO TOOL REQUIRED
-    # ========================================================
-
-    if not assistant_message.tool_calls:
-
-        return {
-            "text": assistant_message.content,
-            "data": None
-        }
+    return response.choices[0].message.content
 
 
-    # ========================================================
-    # ADD ASSISTANT TOOL CALL
-    # ========================================================
+# ============================================================
+# MAIN FUNCTION
+# ============================================================
 
-    messages.append(
-        assistant_message
+def ask_railway_ai(
+    question,
+    conversation=None
+):
+
+    if not question or not question.strip():
+
+        return "Please enter a railway question."
+
+    question = question.strip()
+
+    # --------------------------------------------------------
+    # STEP 1: UNDERSTAND USER
+    # --------------------------------------------------------
+
+    intent = get_intent(question)
+
+    # --------------------------------------------------------
+    # STEP 2: GET DATABASE INFORMATION
+    # --------------------------------------------------------
+
+    database_result = execute_search(
+        intent
     )
 
+    # --------------------------------------------------------
+    # STEP 3: GENERATE NATURAL RESPONSE
+    # --------------------------------------------------------
 
-    tool_results = []
-
-
-    # ========================================================
-    # EXECUTE TOOLS
-    # ========================================================
-
-    for tool_call in assistant_message.tool_calls:
-
-        tool_name = tool_call.function.name
-
-        arguments = json.loads(
-            tool_call.function.arguments
-        )
-
-        result = execute_tool(
-            tool_name,
-            arguments
-        )
-
-        tool_results.append({
-            "tool_name": tool_name,
-            "result": result
-        })
-
-        messages.append({
-
-            "role": "tool",
-
-            "tool_call_id": tool_call.id,
-
-            "name": tool_name,
-
-            "content": result
-        })
-
-
-    # ========================================================
-    # SECOND GROQ REQUEST
-    # ========================================================
-
-    final_response = client.chat.completions.create(
-
-        model="openai/gpt-oss-20b",
-
-        messages=messages,
-
-        temperature=0.2,
-
-        max_tokens=1500
+    answer = generate_answer(
+        question,
+        intent,
+        database_result,
+        conversation
     )
 
+    return answer
 
-    final_text = final_response.choices[0].message.content
 
+# ============================================================
+# TERMINAL TEST
+# ============================================================
 
-    return {
-
-        "text": final_text,
-
-        "data": tool_results
-    }
 if __name__ == "__main__":
 
-    question = input(
-        "Ask Railway Assistant: "
-    )
-
-    result = ask_railway_ai(question)
-
     print()
-    print("AI:")
-    print(result["text"])
+    print("=" * 65)
+    print("🚆 RAILWAY AI ROUTER TEST")
+    print("=" * 65)
+
+    while True:
+
+        question = input(
+            "\nAsk Railway Assistant: "
+        ).strip()
+
+        if question.lower() in {
+            "exit",
+            "quit",
+            "bye"
+        }:
+            print("\n👋 Goodbye!")
+            break
+
+        if not question:
+            continue
+
+        print()
+        print("🤖 AI:")
+        print()
+
+        try:
+
+            answer = ask_railway_ai(
+                question
+            )
+
+            print(answer)
+
+        except Exception as e:
+
+            print("❌ Error:")
+            print(e)

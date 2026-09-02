@@ -1,183 +1,212 @@
-import search
+import sys
+from ai_router import ask_railway_ai
 
-print("Imported search.py from:")
-print(search.__file__)
 
-from search import (
-    get_train_by_number,
-    get_schedule,
-    get_station,
-    get_station_codes,
-    get_trains_between_route
-)
+# ============================================================
+# RAILWAY AI ASSISTANT - TERMINAL VERSION
+# ============================================================
 
-from response_generator import generate_train_response
-from schedule_response import generate_schedule_response
-from station_response import generate_station_response
+def print_welcome():
+    print()
+    print("=" * 70)
+    print("🚆  INDIAN RAILWAY AI ASSISTANT")
+    print("=" * 70)
+    print("🤖 Ask me anything about Indian Railways.")
+    print()
+    print("You can ask about:")
+    print("  🚆 Trains")
+    print("  🛤️  Routes")
+    print("  🕐 Train schedules")
+    print("  📍 Railway stations")
+    print("  🔎 Train numbers")
+    print("  💬 Follow-up questions")
+    print()
+    print("Examples:")
+    print("  • Mumbai to Goa")
+    print("  • Find trains from Mumbai to Delhi")
+    print("  • Tell me about train 10103")
+    print("  • Show schedule of 10103")
+    print("  • What is Karmali station?")
+    print("  • Which trains run between Delhi and Mumbai?")
+    print()
+    print("Type 'help' for help.")
+    print("Type 'exit' or 'quit' to close the assistant.")
+    print("=" * 70)
+    print()
 
-from nlp import (
-    extract_train_number,
-    extract_station_code,
-    extract_source_destination,
-    detect_intent
-)
 
-print("=" * 50)
-print("🚆 Indian Railway AI Chatbot")
-print("Type 'exit' to quit")
-print("=" * 50)
+def print_help():
+    print()
+    print("🤖 WHAT YOU CAN ASK")
+    print("-" * 60)
 
-while True:
+    print()
+    print("🚆 TRAIN INFORMATION")
+    print("  Tell me about train 10103")
+    print("  Find train 12051")
+    print("  What is train 12951?")
 
-    user = input("\nYou : ")
+    print()
+    print("🛤️ ROUTE SEARCH")
+    print("  Mumbai to Goa")
+    print("  Find trains from Mumbai to Delhi")
+    print("  Which trains go from Delhi to Chennai?")
 
-    if user.lower() == "exit":
-        print("\nBot : Thank you for using Indian Railway AI Chatbot.")
-        break
+    print()
+    print("🕐 TRAIN SCHEDULE")
+    print("  Show schedule of 10103")
+    print("  What is the timing of train 10103?")
+    print("  Tell me the schedule of train 12051")
 
-    # =====================================
-    # NLP
-    # =====================================
+    print()
+    print("📍 STATION INFORMATION")
+    print("  What is Karmali station?")
+    print("  Tell me about Mumbai station")
+    print("  Give me information about Madgaon")
 
-    intent = detect_intent(user)
+    print()
+    print("💬 GENERAL")
+    print("  I want to travel from Mumbai to Goa")
+    print("  Find trains from Mumbai to Goa")
+    print("  Which train should I check?")
 
-    train_number = extract_train_number(user)
+    print()
+    print("Type 'exit' to leave.")
+    print()
 
-    station_code = extract_station_code(user)
 
-    source, destination = extract_source_destination(user)
+def ask_question(question, conversation):
+    """
+    Send the user's question to the AI router.
+    """
 
-    print("\n========== NLP ==========")
-    print("Intent :", intent)
-    print("Source :", source)
-    print("Destination :", destination)
-    print("=========================\n")
+    try:
 
-    # =====================================
-    # TRAINS BETWEEN TWO CITIES / STATIONS
-    # =====================================
+        result = ask_railway_ai(
+            question,
+            conversation=conversation
+        )
 
-    if intent == "between":
+        return result
 
-        if source and destination:
+    except TypeError:
+        # Supports older versions of ai_router.py
+        try:
+            result = ask_railway_ai(question)
+            return result
 
-            # Automatically find all station codes
-            source_df = get_station_codes(source)
+        except Exception as e:
+            return f"❌ Error: {e}"
 
-            if len(source_df) > 0:
-                source_stations = source_df["code"].tolist()
-            else:
-                source_stations = [source.upper()]
+    except Exception as e:
+        return f"❌ Error: {e}"
 
-            destination_df = get_station_codes(destination)
 
-            if len(destination_df) > 0:
-                destination_stations = destination_df["code"].tolist()
-            else:
-                destination_stations = [destination.upper()]
+def main():
 
-            print("\n========== DEBUG ==========")
-            print("Source City :", source)
-            print("Destination City :", destination)
-            print("Source Stations :", source_stations)
-            print("Destination Stations :", destination_stations)
-            print("===========================\n")
+    print_welcome()
 
-            trains = get_trains_between_route(
-                source_stations,
-                destination_stations
-            )
+    # Conversation history
+    conversation = []
 
-            print("\nReturned rows:", len(trains))
-            print(trains)
+    while True:
 
-            if len(trains) > 0:
+        try:
+            question = input("👤 You: ").strip()
 
-                print("\n===================================================")
-                print(f"🚆 Found {len(trains)} Train(s)")
-                print("===================================================")
+        except KeyboardInterrupt:
+            print()
+            print("\n👋 Goodbye!")
+            sys.exit(0)
 
-                trains = trains.sort_values(by="number")
-                trains = trains.drop_duplicates(subset=["number"])
+        except EOFError:
+            print()
+            print("\n👋 Goodbye!")
+            sys.exit(0)
 
-                for i, (_, row) in enumerate(trains.iterrows(), start=1):
-                    print(f"\nTrain {i}")
-                    print("---------------------------------------------------")
-                    print(f"Train Number : {row['number']}")
-                    print(f"Train Name   : {row['name']}")
-                    print(f"From         : {row['source_station']}")
-                    print(f"To           : {row['destination_station']}")
-                    print(f"Type         : {row['type']}")
-                    print(f"Distance     : {row['distance']} km")
-            else:
+        # ----------------------------------------------------
+        # Empty input
+        # ----------------------------------------------------
 
-                print("\nBot : No trains found.")
+        if not question:
+            print("🤖 Please enter a question.")
+            continue
 
-        else:
+        # ----------------------------------------------------
+        # EXIT
+        # ----------------------------------------------------
 
-            print("\nBot : Please enter source and destination.")
+        if question.lower() in {
+            "exit",
+            "quit",
+            "bye",
+            "goodbye"
+        }:
+            print()
+            print("🤖 Thank you for using Indian Railway AI Assistant.")
+            print("👋 Goodbye!")
+            break
 
-    # =====================================
-    # STATION INFORMATION
-    # =====================================
+        # ----------------------------------------------------
+        # HELP
+        # ----------------------------------------------------
 
-    elif intent == "station":
+        if question.lower() in {
+            "help",
+            "commands",
+            "options"
+        }:
+            print_help()
+            continue
 
-        if station_code:
+        # ----------------------------------------------------
+        # CLEAR CONVERSATION
+        # ----------------------------------------------------
 
-            station = get_station(station_code)
+        if question.lower() in {
+            "clear",
+            "reset",
+            "new conversation"
+        }:
+            conversation = []
+            print("🤖 Conversation cleared.")
+            print()
+            continue
 
-            if len(station) > 0:
+        # ----------------------------------------------------
+        # PROCESS QUESTION
+        # ----------------------------------------------------
 
-                print("\nBot :")
-                print(generate_station_response(station.iloc[0]))
+        print()
+        print("🤖 Railway Assistant: ", end="", flush=True)
 
-            else:
+        answer = ask_question(
+            question,
+            conversation
+        )
 
-                print("\nBot : Station not found.")
+        print()
+        print(answer)
+        print()
 
-        else:
+        # ----------------------------------------------------
+        # SAVE CONVERSATION
+        # ----------------------------------------------------
 
-            print("\nBot : Please enter a valid station code.")
+        conversation.append({
+            "role": "user",
+            "content": question
+        })
 
-    # =====================================
-    # TRAIN DETAILS
-    # =====================================
+        conversation.append({
+            "role": "assistant",
+            "content": str(answer)
+        })
 
-    elif intent == "train" and train_number:
 
-        train = get_train_by_number(train_number)
+# ============================================================
+# START PROGRAM
+# ============================================================
 
-        if len(train) > 0:
-
-            print("\nBot :")
-            print(generate_train_response(train.iloc[0]))
-
-        else:
-
-            print("\nBot : Train not found.")
-
-    # =====================================
-    # TRAIN SCHEDULE
-    # =====================================
-
-    elif intent == "schedule" and train_number:
-
-        schedule = get_schedule(train_number)
-
-        if len(schedule) > 0:
-
-            print("\nBot :")
-            print(generate_schedule_response(schedule))
-
-        else:
-
-            print("\nBot : Schedule not found.")
-
-    # =====================================
-    # UNKNOWN
-    # =====================================
-
-    else:
-
-        print("\nBot : Sorry, I didn't understand your question.")
+if __name__ == "__main__":
+    main()
