@@ -1,74 +1,547 @@
+# railway_tools.py
+# ============================================================
+# RailwayChatBot - Railway Database Tools
+# ============================================================
+
 import sqlite3
-from pathlib import Path
+import os
+import re
+
 
 # ============================================================
 # DATABASE
 # ============================================================
 
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "Database" / "railway.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "Database", "railway.db")
 
+
+# ============================================================
+# STATE ALIASES
+# ============================================================
+
+STATE_ALIASES = {
+    "goa": "Goa",
+    "karnataka": "Karnataka",
+    "maharashtra": "Maharashtra",
+    "kerala": "Kerala",
+    "tamil nadu": "Tamil Nadu",
+    "tamilnadu": "Tamil Nadu",
+    "andhra pradesh": "Andhra Pradesh",
+    "telangana": "Telangana",
+    "gujarat": "Gujarat",
+    "rajasthan": "Rajasthan",
+    "delhi": "Delhi",
+    "uttar pradesh": "Uttar Pradesh",
+    "up": "Uttar Pradesh",
+    "madhya pradesh": "Madhya Pradesh",
+    "mp": "Madhya Pradesh",
+    "west bengal": "West Bengal",
+    "odisha": "Odisha",
+    "orissa": "Odisha",
+    "bihar": "Bihar",
+    "jharkhand": "Jharkhand",
+    "punjab": "Punjab",
+    "haryana": "Haryana",
+    "himachal pradesh": "Himachal Pradesh",
+    "uttarakhand": "Uttarakhand",
+    "assam": "Assam",
+    "chhattisgarh": "Chhattisgarh",
+    "jammu and kashmir": "Jammu and Kashmir",
+    "jammu & kashmir": "Jammu and Kashmir",
+    "ladakh": "Ladakh",
+}
+
+
+# ============================================================
+# CITY ALIASES
+# ============================================================
+
+CITY_ALIASES = {
+    "mumbai": ["mumbai", "bombay"],
+    "bombay": ["mumbai", "bombay"],
+
+    "delhi": ["delhi", "new delhi"],
+    "new delhi": ["delhi", "new delhi"],
+
+    "pune": ["pune"],
+
+    "bangalore": ["bangalore", "bengaluru"],
+    "bengaluru": ["bangalore", "bengaluru"],
+
+    "chennai": ["chennai", "madras"],
+    "madras": ["chennai", "madras"],
+
+    "kolkata": ["kolkata", "calcutta"],
+    "calcutta": ["kolkata", "calcutta"],
+
+    "hyderabad": ["hyderabad"],
+
+    "ahmedabad": ["ahmedabad"],
+
+    "jaipur": ["jaipur"],
+
+    "lucknow": ["lucknow"],
+
+    "nagpur": ["nagpur"],
+
+    "surat": ["surat"],
+
+    "vadodara": ["vadodara", "baroda"],
+    "baroda": ["vadodara", "baroda"],
+
+    "nashik": ["nashik", "nasik"],
+    "nasik": ["nashik", "nasik"],
+
+    "kochi": ["kochi", "cochin"],
+    "cochin": ["kochi", "cochin"],
+
+    "trivandrum": ["trivandrum", "thiruvananthapuram"],
+    "thiruvananthapuram": ["trivandrum", "thiruvananthapuram"],
+
+    "mysore": ["mysore", "mysuru"],
+    "mysuru": ["mysore", "mysuru"],
+
+    "visakhapatnam": ["visakhapatnam", "vizag"],
+    "vizag": ["visakhapatnam", "vizag"],
+
+    "bhubaneswar": ["bhubaneswar"],
+    "patna": ["patna"],
+    "ranchi": ["ranchi"],
+    "indore": ["indore"],
+    "bhopal": ["bhopal"],
+    "chandigarh": ["chandigarh"],
+    "amritsar": ["amritsar"],
+    "varanasi": ["varanasi", "banaras"],
+    "banaras": ["varanasi", "banaras"],
+    "agra": ["agra"],
+    "mathura": ["mathura"],
+
+    # Goa cities / common railway locations
+    "madgaon": ["madgaon", "madgaon junction"],
+    "margao": ["madgaon", "madgaon junction"],
+    "thivim": ["thivim"],
+    "karmali": ["karmali"],
+    "vasco": ["vasco da gama"],
+    "vasco da gama": ["vasco da gama"],
+    "canacona": ["canacona"],
+    "pernem": ["pernem"],
+    "verna": ["verna"],
+}
+
+
+# ============================================================
+# CITY -> STATE
+# ============================================================
+
+CITY_STATES = {
+    "mumbai": "Maharashtra",
+    "bombay": "Maharashtra",
+    "pune": "Maharashtra",
+
+    "bangalore": "Karnataka",
+    "bengaluru": "Karnataka",
+    "mysore": "Karnataka",
+    "mysuru": "Karnataka",
+
+    "chennai": "Tamil Nadu",
+    "madras": "Tamil Nadu",
+
+    "hyderabad": "Telangana",
+
+    "ahmedabad": "Gujarat",
+
+    "jaipur": "Rajasthan",
+
+    "lucknow": "Uttar Pradesh",
+
+    "nagpur": "Maharashtra",
+
+    "surat": "Gujarat",
+
+    "vadodara": "Gujarat",
+    "baroda": "Gujarat",
+
+    "nashik": "Maharashtra",
+    "nasik": "Maharashtra",
+
+    "kochi": "Kerala",
+    "cochin": "Kerala",
+
+    "trivandrum": "Kerala",
+    "thiruvananthapuram": "Kerala",
+
+    "visakhapatnam": "Andhra Pradesh",
+    "vizag": "Andhra Pradesh",
+
+    "bhubaneswar": "Odisha",
+
+    "patna": "Bihar",
+
+    "ranchi": "Jharkhand",
+
+    "indore": "Madhya Pradesh",
+
+    "bhopal": "Madhya Pradesh",
+
+    "chandigarh": "Chandigarh",
+
+    "amritsar": "Punjab",
+
+    "varanasi": "Uttar Pradesh",
+    "banaras": "Uttar Pradesh",
+
+    "agra": "Uttar Pradesh",
+
+    "mathura": "Uttar Pradesh",
+
+    "kolkata": "West Bengal",
+    "calcutta": "West Bengal",
+
+    "delhi": "Delhi",
+    "new delhi": "Delhi",
+
+    # Goa
+    "madgaon": "Goa",
+    "margao": "Goa",
+    "thivim": "Goa",
+    "karmali": "Goa",
+    "vasco": "Goa",
+    "vasco da gama": "Goa",
+    "canacona": "Goa",
+    "pernem": "Goa",
+    "verna": "Goa",
+}
+
+
+# ============================================================
+# DATABASE CONNECTION
+# ============================================================
 
 def get_connection():
-    return sqlite3.connect(str(DB_PATH))
+    """Connect to railway database."""
+
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(
+            f"Railway database not found:\n{DB_PATH}"
+        )
+
+    return sqlite3.connect(DB_PATH)
 
 
 # ============================================================
-# HELPERS
+# NORMALIZE TEXT
 # ============================================================
 
-def clean_text(value):
+def normalize_text(value):
+    """Normalize user input."""
+
     if value is None:
         return ""
-    return str(value).strip()
+
+    value = str(value).strip().lower()
+
+    value = re.sub(r"[,\.\-_]+", " ", value)
+    value = re.sub(r"\s+", " ", value)
+
+    return value.strip()
 
 
-def find_station(place):
+# ============================================================
+# TRAIN NUMBER CLEANER
+# ============================================================
+
+def clean_train_number(train_number):
+
+    if train_number is None:
+        return ""
+
+    match = re.search(r"\d{3,6}", str(train_number))
+
+    if match:
+        return match.group()
+
+    return str(train_number).strip()
+
+
+# ============================================================
+# RESOLVE PLACE
+# ============================================================
+
+def resolve_place(place):
     """
-    Find station by code, name, city or state.
+    Resolve:
+        Station code
+        Station name
+        City
+        State
     """
 
-    place = clean_text(place)
+    original = str(place).strip()
+    normalized = normalize_text(original)
 
-    if not place:
-        return []
+    if not normalized:
+        return {
+            "query": original,
+            "codes": [],
+            "stations": [],
+            "states": [],
+            "matched_by": "none"
+        }
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # STATE CHECK MUST COME BEFORE STATION CODE.
+    #
+    # Example:
+    # Goa -> state Goa
+    # Karnataka -> state Karnataka
+    # Maharashtra -> state Maharashtra
+    # --------------------------------------------------------
+
+    state_name = STATE_ALIASES.get(normalized)
 
     conn = get_connection()
 
     try:
-        query = """
+
+        cur = conn.cursor()
+
+        # ====================================================
+        # 1. STATE SEARCH
+        # ====================================================
+
+        if state_name:
+
+            cur.execute(
+                """
+                SELECT code, name, state, zone, address
+                FROM stations
+                WHERE LOWER(TRIM(state)) = LOWER(?)
+                ORDER BY name
+                """,
+                (state_name,)
+            )
+
+            rows = cur.fetchall()
+
+            if rows:
+
+                return {
+                    "query": original,
+                    "codes": list(
+                        dict.fromkeys(row[0] for row in rows)
+                    ),
+                    "stations": [
+                        {
+                            "code": row[0],
+                            "name": row[1],
+                            "state": row[2],
+                            "zone": row[3],
+                            "address": row[4]
+                        }
+                        for row in rows
+                    ],
+                    "states": [state_name],
+                    "matched_by": "state"
+                }
+
+        # ====================================================
+        # 2. EXACT STATION CODE
+        # ====================================================
+
+        cur.execute(
+            """
             SELECT code, name, state, zone, address
             FROM stations
-            WHERE
-                UPPER(code) = UPPER(?)
-                OR UPPER(name) LIKE UPPER(?)
-                OR UPPER(state) LIKE UPPER(?)
-                OR UPPER(address) LIKE UPPER(?)
-            ORDER BY
-                CASE
-                    WHEN UPPER(code) = UPPER(?) THEN 1
-                    WHEN UPPER(name) = UPPER(?) THEN 2
-                    ELSE 3
-                END
-        """
+            WHERE UPPER(TRIM(code)) = UPPER(?)
+            """,
+            (original,)
+        )
 
-        pattern = f"%{place}%"
+        rows = cur.fetchall()
 
-        rows = conn.execute(
-            query,
-            (
-                place,
-                pattern,
-                pattern,
-                pattern,
-                place,
-                place
-            )
-        ).fetchall()
+        if rows:
 
-        return rows
+            return {
+                "query": original,
+                "codes": list(
+                    dict.fromkeys(row[0] for row in rows)
+                ),
+                "stations": [
+                    {
+                        "code": row[0],
+                        "name": row[1],
+                        "state": row[2],
+                        "zone": row[3],
+                        "address": row[4]
+                    }
+                    for row in rows
+                ],
+                "states": list(
+                    dict.fromkeys(row[2] for row in rows)
+                ),
+                "matched_by": "station_code"
+            }
+
+        # ====================================================
+        # 3. EXACT STATION NAME
+        # ====================================================
+
+        cur.execute(
+            """
+            SELECT code, name, state, zone, address
+            FROM stations
+            WHERE LOWER(TRIM(name)) = ?
+            """,
+            (normalized,)
+        )
+
+        rows = cur.fetchall()
+
+        if rows:
+
+            return {
+                "query": original,
+                "codes": list(
+                    dict.fromkeys(row[0] for row in rows)
+                ),
+                "stations": [
+                    {
+                        "code": row[0],
+                        "name": row[1],
+                        "state": row[2],
+                        "zone": row[3],
+                        "address": row[4]
+                    }
+                    for row in rows
+                ],
+                "states": list(
+                    dict.fromkeys(row[2] for row in rows)
+                ),
+                "matched_by": "station_name"
+            }
+
+        # ====================================================
+        # 4. CITY SEARCH
+        # ====================================================
+
+        aliases = CITY_ALIASES.get(normalized)
+
+        if aliases:
+
+            city_state = CITY_STATES.get(normalized)
+
+            conditions = []
+            params = []
+
+            for alias in aliases:
+
+                conditions.append(
+                    "LOWER(name) LIKE ?"
+                )
+
+                params.append(f"%{alias}%")
+
+            query = f"""
+                SELECT code, name, state, zone, address
+                FROM stations
+                WHERE (
+                    {" OR ".join(conditions)}
+                )
+            """
+
+            if city_state:
+
+                query += """
+                    AND LOWER(state) = LOWER(?)
+                """
+
+                params.append(city_state)
+
+            query += " ORDER BY name LIMIT 200"
+
+            cur.execute(query, params)
+
+            rows = cur.fetchall()
+
+            if rows:
+
+                return {
+                    "query": original,
+                    "codes": list(
+                        dict.fromkeys(row[0] for row in rows)
+                    ),
+                    "stations": [
+                        {
+                            "code": row[0],
+                            "name": row[1],
+                            "state": row[2],
+                            "zone": row[3],
+                            "address": row[4]
+                        }
+                        for row in rows
+                    ],
+                    "states": list(
+                        dict.fromkeys(row[2] for row in rows)
+                    ),
+                    "matched_by": "city"
+                }
+
+        # ====================================================
+        # 5. PARTIAL STATION NAME
+        # ====================================================
+
+        cur.execute(
+            """
+            SELECT code, name, state, zone, address
+            FROM stations
+            WHERE LOWER(name) LIKE ?
+            ORDER BY LENGTH(name)
+            LIMIT 100
+            """,
+            (f"%{normalized}%",)
+        )
+
+        rows = cur.fetchall()
+
+        if rows:
+
+            return {
+                "query": original,
+                "codes": list(
+                    dict.fromkeys(row[0] for row in rows)
+                ),
+                "stations": [
+                    {
+                        "code": row[0],
+                        "name": row[1],
+                        "state": row[2],
+                        "zone": row[3],
+                        "address": row[4]
+                    }
+                    for row in rows
+                ],
+                "states": list(
+                    dict.fromkeys(row[2] for row in rows)
+                ),
+                "matched_by": "partial_station_name"
+            }
+
+        # ====================================================
+        # NOTHING FOUND
+        # ====================================================
+
+        return {
+            "query": original,
+            "codes": [],
+            "stations": [],
+            "states": [],
+            "matched_by": "none"
+        }
 
     finally:
+
         conn.close()
 
 
@@ -77,19 +550,25 @@ def find_station(place):
 # ============================================================
 
 def train_search(train_number):
-    """
-    Search train by train number.
-    """
 
-    train_number = clean_text(train_number)
+    number = clean_train_number(train_number)
+
+    if not number:
+        return []
 
     conn = get_connection()
 
     try:
-        query = """
+
+        cur = conn.cursor()
+
+        cur.execute(
+            """
             SELECT
                 number,
                 name,
+                type,
+                zone,
                 from_station_code,
                 from_station_name,
                 to_station_code,
@@ -98,38 +577,79 @@ def train_search(train_number):
                 arrival,
                 duration_h,
                 duration_m,
-                type,
                 distance,
-                zone,
-                first_ac,
-                second_ac,
-                third_ac,
+                classes,
                 sleeper,
-                chair_car
+                third_ac,
+                second_ac,
+                first_ac,
+                chair_car,
+                first_class,
+                return_train
             FROM trains
             WHERE number = ?
-        """
+            """,
+            (number,)
+        )
 
-        return conn.execute(query, (train_number,)).fetchall()
+        rows = cur.fetchall()
+
+        columns = [
+            "number",
+            "name",
+            "type",
+            "zone",
+            "from_station_code",
+            "from_station_name",
+            "to_station_code",
+            "to_station_name",
+            "departure",
+            "arrival",
+            "duration_h",
+            "duration_m",
+            "distance",
+            "classes",
+            "sleeper",
+            "third_ac",
+            "second_ac",
+            "first_ac",
+            "chair_car",
+            "first_class",
+            "return_train"
+        ]
+
+        return [
+            dict(zip(columns, row))
+            for row in rows
+        ]
 
     finally:
+
         conn.close()
 
 
-def train_search_by_name(name):
-    """
-    Search trains by train name.
-    """
+# ============================================================
+# TRAIN NAME SEARCH
+# ============================================================
 
-    name = clean_text(name)
+def train_search_by_name(name, limit=20):
+
+    if not name:
+        return []
 
     conn = get_connection()
 
     try:
-        query = """
+
+        cur = conn.cursor()
+
+        cur.execute(
+            """
             SELECT
                 number,
                 name,
+                type,
+                zone,
                 from_station_code,
                 from_station_name,
                 to_station_code,
@@ -138,20 +658,45 @@ def train_search_by_name(name):
                 arrival,
                 duration_h,
                 duration_m,
-                type,
                 distance,
-                zone
+                classes
             FROM trains
-            WHERE UPPER(name) LIKE UPPER(?)
-            LIMIT 30
-        """
+            WHERE LOWER(name) LIKE ?
+            ORDER BY number
+            LIMIT ?
+            """,
+            (
+                f"%{normalize_text(name)}%",
+                limit
+            )
+        )
 
-        return conn.execute(
-            query,
-            (f"%{name}%",)
-        ).fetchall()
+        rows = cur.fetchall()
+
+        columns = [
+            "number",
+            "name",
+            "type",
+            "zone",
+            "from_station_code",
+            "from_station_name",
+            "to_station_code",
+            "to_station_name",
+            "departure",
+            "arrival",
+            "duration_h",
+            "duration_m",
+            "distance",
+            "classes"
+        ]
+
+        return [
+            dict(zip(columns, row))
+            for row in rows
+        ]
 
     finally:
+
         conn.close()
 
 
@@ -160,28 +705,29 @@ def train_search_by_name(name):
 # ============================================================
 
 def station_search(place):
-    """
-    Search station by station name, code, state or address.
-    """
 
-    return find_station(place)
+    return resolve_place(place)
 
 
 # ============================================================
 # SCHEDULE SEARCH
 # ============================================================
 
-def schedule_search(train_number):
-    """
-    Get complete schedule of a train.
-    """
+def schedule_search(train_number, limit=500):
 
-    train_number = clean_text(train_number)
+    number = clean_train_number(train_number)
+
+    if not number:
+        return []
 
     conn = get_connection()
 
     try:
-        query = """
+
+        cur = conn.cursor()
+
+        cur.execute(
+            """
             SELECT
                 train_number,
                 train_name,
@@ -189,18 +735,36 @@ def schedule_search(train_number):
                 station_name,
                 arrival,
                 departure,
-                day
+                day,
+                id
             FROM schedules
             WHERE train_number = ?
             ORDER BY id
-        """
+            LIMIT ?
+            """,
+            (number, limit)
+        )
 
-        return conn.execute(
-            query,
-            (train_number,)
-        ).fetchall()
+        rows = cur.fetchall()
+
+        columns = [
+            "train_number",
+            "train_name",
+            "station_code",
+            "station_name",
+            "arrival",
+            "departure",
+            "day",
+            "id"
+        ]
+
+        return [
+            dict(zip(columns, row))
+            for row in rows
+        ]
 
     finally:
+
         conn.close()
 
 
@@ -209,30 +773,8 @@ def schedule_search(train_number):
 # ============================================================
 
 def search_train_stations(train_number):
-    """
-    Return all stations visited by a train.
-    """
 
-    rows = schedule_search(train_number)
-
-    if not rows:
-        return []
-
-    stations = []
-
-    for row in rows:
-
-        stations.append({
-            "train_number": row[0],
-            "train_name": row[1],
-            "station_code": row[2],
-            "station_name": row[3],
-            "arrival": row[4],
-            "departure": row[5],
-            "day": row[6]
-        })
-
-    return stations
+    return schedule_search(train_number)
 
 
 # ============================================================
@@ -241,284 +783,206 @@ def search_train_stations(train_number):
 
 def route_search(source, destination, limit=50):
     """
-    Find direct trains between two stations/cities.
-    Uses schedules, so intermediate stations are supported.
+    Search routes between:
+        Station -> Station
+        City -> City
+        State -> State
+        Station -> State
+        State -> Station
+        City -> State
+        State -> City
     """
 
-    source = clean_text(source)
-    destination = clean_text(destination)
+    source_result = resolve_place(source)
+    destination_result = resolve_place(destination)
 
-    if not source or not destination:
-        return []
+    source_codes = source_result["codes"]
+    destination_codes = destination_result["codes"]
+
+    # --------------------------------------------------------
+    # Source not found
+    # --------------------------------------------------------
+
+    if not source_codes:
+
+        return {
+            "source": source,
+            "destination": destination,
+            "source_found": False,
+            "destination_found": bool(destination_codes),
+            "results": [],
+            "count": 0,
+            "message": f"Could not find source: {source}"
+        }
+
+    # --------------------------------------------------------
+    # Destination not found
+    # --------------------------------------------------------
+
+    if not destination_codes:
+
+        return {
+            "source": source,
+            "destination": destination,
+            "source_found": True,
+            "destination_found": False,
+            "results": [],
+            "count": 0,
+            "message": f"Could not find destination: {destination}"
+        }
+
+    # SQLite safety
+    source_codes = source_codes[:800]
+    destination_codes = destination_codes[:800]
 
     conn = get_connection()
 
     try:
 
-        query = """
-            SELECT DISTINCT
+        cur = conn.cursor()
+
+        source_placeholders = ",".join(
+            "?" for _ in source_codes
+        )
+
+        destination_placeholders = ",".join(
+            "?" for _ in destination_codes
+        )
+
+        query = f"""
+            SELECT
                 s1.train_number,
                 s1.train_name,
 
                 s1.station_code,
                 s1.station_name,
-
                 s1.arrival,
                 s1.departure,
                 s1.day,
 
                 s2.station_code,
                 s2.station_name,
-
                 s2.arrival,
                 s2.departure,
-                s2.day
+                s2.day,
+
+                s1.id,
+                s2.id
 
             FROM schedules s1
 
-            JOIN schedules s2
+            INNER JOIN schedules s2
                 ON s1.train_number = s2.train_number
 
-            WHERE
-                (
-                    UPPER(s1.station_name) LIKE UPPER(?)
-                    OR UPPER(s1.station_code) = UPPER(?)
-                )
+            WHERE s1.station_code IN ({source_placeholders})
 
-                AND
+              AND s2.station_code IN ({destination_placeholders})
 
-                (
-                    UPPER(s2.station_name) LIKE UPPER(?)
-                    OR UPPER(s2.station_code) = UPPER(?)
-                )
+              AND s1.id < s2.id
 
-                AND s1.id < s2.id
-
-            ORDER BY s1.train_number
-
-            LIMIT ?
+            ORDER BY
+                s1.train_number,
+                s1.id,
+                s2.id
         """
 
-        source_pattern = f"%{source}%"
-        destination_pattern = f"%{destination}%"
-
-        return conn.execute(
+        cur.execute(
             query,
-            (
-                source_pattern,
-                source,
+            source_codes + destination_codes
+        )
 
-                destination_pattern,
-                destination,
+        rows = cur.fetchall()
 
-                limit
+        results = []
+
+        seen_trains = set()
+
+        for row in rows:
+
+            train_number = str(row[0])
+
+            if train_number in seen_trains:
+                continue
+
+            seen_trains.add(train_number)
+
+            results.append(
+                {
+                    "train_number": row[0],
+                    "train_name": row[1],
+
+                    "source_code": row[2],
+                    "source_station": row[3],
+                    "source_arrival": row[4],
+                    "source_departure": row[5],
+                    "source_day": row[6],
+
+                    "destination_code": row[7],
+                    "destination_station": row[8],
+                    "destination_arrival": row[9],
+                    "destination_departure": row[10],
+                    "destination_day": row[11]
+                }
             )
-        ).fetchall()
+
+            if len(results) >= limit:
+                break
+
+        return {
+            "source": source,
+            "destination": destination,
+
+            "source_found": True,
+            "destination_found": True,
+
+            "source_matched_by":
+                source_result["matched_by"],
+
+            "destination_matched_by":
+                destination_result["matched_by"],
+
+            "source_station_count":
+                len(source_codes),
+
+            "destination_station_count":
+                len(destination_codes),
+
+            "results": results,
+            "count": len(results)
+        }
 
     finally:
+
         conn.close()
 
 
 # ============================================================
-# TRAINS TO STATION / CITY / STATE
+# TRAINS FROM STATION / CITY / STATE
 # ============================================================
 
-def trains_to_station(place, limit=50):
-    """
-    Find trains whose route reaches a station matching
-    the supplied place.
-    """
+def search_trains_from_station(place, limit=50):
 
-    stations = find_station(place)
+    resolved = resolve_place(place)
 
-    if not stations:
+    codes = resolved["codes"]
+
+    if not codes:
         return []
 
-    station_codes = [
-        clean_text(row[0])
-        for row in stations
-    ]
-
-    station_names = [
-        clean_text(row[1])
-        for row in stations
-    ]
+    codes = codes[:800]
 
     conn = get_connection()
 
     try:
 
-        conditions = []
-        params = []
+        cur = conn.cursor()
 
-        for code in station_codes:
-            conditions.append(
-                "UPPER(to_station_code) = UPPER(?)"
-            )
-            params.append(code)
-
-        for name in station_names:
-            conditions.append(
-                "UPPER(to_station_name) = UPPER(?)"
-            )
-            params.append(name)
-
-        if not conditions:
-            return []
+        placeholders = ",".join(
+            "?" for _ in codes
+        )
 
         query = f"""
             SELECT
-                number,
-                name,
-                from_station_code,
-                from_station_name,
-                to_station_code,
-                to_station_name,
-                departure,
-                arrival,
-                duration_h,
-                duration_m,
-                type,
-                distance,
-                zone
-            FROM trains
-            WHERE {" OR ".join(conditions)}
-            ORDER BY number
-            LIMIT ?
-        """
-
-        params.append(limit)
-
-        return conn.execute(
-            query,
-            params
-        ).fetchall()
-
-    finally:
-        conn.close()
-
-
-def trains_from_station(place, limit=50):
-    """
-    Find trains starting from a station/city.
-    """
-
-    stations = find_station(place)
-
-    if not stations:
-        return []
-
-    station_codes = [
-        clean_text(row[0])
-        for row in stations
-    ]
-
-    station_names = [
-        clean_text(row[1])
-        for row in stations
-    ]
-
-    conn = get_connection()
-
-    try:
-
-        conditions = []
-        params = []
-
-        for code in station_codes:
-            conditions.append(
-                "UPPER(from_station_code) = UPPER(?)"
-            )
-            params.append(code)
-
-        for name in station_names:
-            conditions.append(
-                "UPPER(from_station_name) = UPPER(?)"
-            )
-            params.append(name)
-
-        if not conditions:
-            return []
-
-        query = f"""
-            SELECT
-                number,
-                name,
-                from_station_code,
-                from_station_name,
-                to_station_code,
-                to_station_name,
-                departure,
-                arrival,
-                duration_h,
-                duration_m,
-                type,
-                distance,
-                zone
-            FROM trains
-            WHERE {" OR ".join(conditions)}
-            ORDER BY number
-            LIMIT ?
-        """
-
-        params.append(limit)
-
-        return conn.execute(
-            query,
-            params
-        ).fetchall()
-
-    finally:
-        conn.close()
-
-
-# ============================================================
-# SEARCH TRAINS PASSING THROUGH A STATION
-# ============================================================
-
-def search_trains_passing_station(place, limit=50):
-    """
-    Find trains appearing in schedules at a station.
-    Useful for questions like:
-    'Which trains stop at Madgaon?'
-    """
-
-    stations = find_station(place)
-
-    if not stations:
-        return []
-
-    codes = [
-        clean_text(row[0])
-        for row in stations
-    ]
-
-    names = [
-        clean_text(row[1])
-        for row in stations
-    ]
-
-    conn = get_connection()
-
-    try:
-
-        conditions = []
-        params = []
-
-        for code in codes:
-            conditions.append(
-                "UPPER(station_code) = UPPER(?)"
-            )
-            params.append(code)
-
-        for name in names:
-            conditions.append(
-                "UPPER(station_name) = UPPER(?)"
-            )
-            params.append(name)
-
-        query = f"""
-            SELECT DISTINCT
                 train_number,
                 train_name,
                 station_code,
@@ -527,19 +991,132 @@ def search_trains_passing_station(place, limit=50):
                 departure,
                 day
             FROM schedules
-            WHERE {" OR ".join(conditions)}
+            WHERE station_code IN ({placeholders})
             ORDER BY train_number
             LIMIT ?
         """
 
-        params.append(limit)
-
-        return conn.execute(
+        cur.execute(
             query,
-            params
-        ).fetchall()
+            codes + [limit]
+        )
+
+        rows = cur.fetchall()
+
+        columns = [
+            "train_number",
+            "train_name",
+            "station_code",
+            "station_name",
+            "arrival",
+            "departure",
+            "day"
+        ]
+
+        return [
+            dict(zip(columns, row))
+            for row in rows
+        ]
 
     finally:
+
+        conn.close()
+
+
+# ============================================================
+# TRAINS TO STATION / CITY / STATE
+# ============================================================
+
+def search_trains_to_station(place, limit=50):
+
+    # Schedule database does not distinguish
+    # "from" and "to" at an intermediate stop.
+    # Therefore this returns trains reaching/stopping there.
+
+    return search_trains_from_station(place, limit)
+
+
+# ============================================================
+# PASSING TRAINS
+# ============================================================
+
+def search_trains_passing_station(place, limit=50):
+
+    return search_trains_from_station(place, limit)
+
+
+# ============================================================
+# TERMINATING TRAINS
+# ============================================================
+
+def search_trains_terminating_at(place, limit=50):
+
+    resolved = resolve_place(place)
+
+    codes = resolved["codes"]
+
+    if not codes:
+        return []
+
+    codes = codes[:800]
+
+    conn = get_connection()
+
+    try:
+
+        cur = conn.cursor()
+
+        placeholders = ",".join(
+            "?" for _ in codes
+        )
+
+        query = f"""
+            SELECT
+                number,
+                name,
+                type,
+                zone,
+                from_station_code,
+                from_station_name,
+                to_station_code,
+                to_station_name,
+                departure,
+                arrival,
+                distance
+            FROM trains
+            WHERE to_station_code IN ({placeholders})
+            ORDER BY number
+            LIMIT ?
+        """
+
+        cur.execute(
+            query,
+            codes + [limit]
+        )
+
+        rows = cur.fetchall()
+
+        columns = [
+            "number",
+            "name",
+            "type",
+            "zone",
+            "from_station_code",
+            "from_station_name",
+            "to_station_code",
+            "to_station_name",
+            "departure",
+            "arrival",
+            "distance"
+        ]
+
+        return [
+            dict(zip(columns, row))
+            for row in rows
+        ]
+
+    finally:
+
         conn.close()
 
 
@@ -548,46 +1125,40 @@ def search_trains_passing_station(place, limit=50):
 # ============================================================
 
 def database_status():
-    """
-    Check railway database.
-    """
 
     conn = get_connection()
 
     try:
 
-        tables = conn.execute(
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type='table'
-            """
-        ).fetchall()
+        cur = conn.cursor()
 
-        result = {
-            "database": str(DB_PATH),
-            "connected": True,
-            "tables": [row[0] for row in tables]
+        tables = {}
+
+        for table in [
+            "trains",
+            "stations",
+            "schedules"
+        ]:
+
+            cur.execute(
+                f"SELECT COUNT(*) FROM {table}"
+            )
+
+            tables[table] = cur.fetchone()[0]
+
+        return {
+            "database": DB_PATH,
+            "database_exists": os.path.exists(DB_PATH),
+            "tables": tables
         }
 
-        for table in ["trains", "stations", "schedules"]:
-
-            if table in result["tables"]:
-
-                count = conn.execute(
-                    f"SELECT COUNT(*) FROM {table}"
-                ).fetchone()[0]
-
-                result[f"{table}_count"] = count
-
-        return result
-
     finally:
+
         conn.close()
 
 
 # ============================================================
-# COMPATIBILITY ALIASES
+# COMPATIBILITY FUNCTIONS
 # ============================================================
 
 def search_train(train_number):
@@ -610,62 +1181,184 @@ def search_route(source, destination, limit=50):
     return route_search(source, destination, limit)
 
 
+def trains_from_station(place, limit=50):
+    return search_trains_from_station(place, limit)
+
+
+def trains_to_station(place, limit=50):
+    return search_trains_to_station(place, limit)
+
+
 # ============================================================
-# TEST
+# DIRECT TEST
 # ============================================================
 
 if __name__ == "__main__":
 
-    print("=" * 60)
-    print("🚆 RAILWAY TOOLS TEST")
-    print("=" * 60)
-
-    print("\nDatabase:")
+    print("=" * 70)
+    print("RAILWAY TOOLS TEST")
+    print("=" * 70)
 
     try:
-        print(database_status())
+
+        # ----------------------------------------------------
+        # DATABASE
+        # ----------------------------------------------------
+
+        status = database_status()
+
+        print("\nDATABASE:")
+        print(status["database"])
+
+        print("\nDATABASE COUNTS:")
+
+        for table, count in status["tables"].items():
+            print(f"{table}: {count}")
+
+        # ----------------------------------------------------
+        # GOA
+        # ----------------------------------------------------
+
+        print("\n" + "-" * 70)
+        print("TEST: Goa")
+        print("-" * 70)
+
+        result = resolve_place("Goa")
+
+        print("Matched by:", result["matched_by"])
+        print("Stations:", len(result["codes"]))
+
+        for station in result["stations"][:10]:
+
+            print(
+                station["code"],
+                "|",
+                station["name"],
+                "|",
+                station["state"]
+            )
+
+        # ----------------------------------------------------
+        # MAHARASHTRA
+        # ----------------------------------------------------
+
+        print("\n" + "-" * 70)
+        print("TEST: Maharashtra")
+        print("-" * 70)
+
+        result = resolve_place("Maharashtra")
+
+        print("Matched by:", result["matched_by"])
+        print("Stations:", len(result["codes"]))
+
+        for station in result["stations"][:10]:
+
+            print(
+                station["code"],
+                "|",
+                station["name"],
+                "|",
+                station["state"]
+            )
+
+        # ----------------------------------------------------
+        # GOA -> MAHARASHTRA
+        # ----------------------------------------------------
+
+        print("\n" + "-" * 70)
+        print("TEST: Goa -> Maharashtra")
+        print("-" * 70)
+
+        result = route_search(
+            "Goa",
+            "Maharashtra",
+            20
+        )
+
+        print("Source matched by:",
+              result.get("source_matched_by"))
+
+        print("Destination matched by:",
+              result.get("destination_matched_by"))
+
+        print("Results:",
+              result.get("count", 0))
+
+        for train in result.get("results", []):
+
+            print(
+                train["train_number"],
+                "|",
+                train["train_name"],
+                "|",
+                train["source_station"],
+                "->",
+                train["destination_station"]
+            )
+
+        # ----------------------------------------------------
+        # MADGAON -> PUNE
+        # ----------------------------------------------------
+
+        print("\n" + "-" * 70)
+        print("TEST: Madgaon -> Pune")
+        print("-" * 70)
+
+        result = route_search(
+            "Madgaon",
+            "Pune",
+            10
+        )
+
+        print("Results:",
+              result.get("count", 0))
+
+        for train in result.get("results", []):
+
+            print(
+                train["train_number"],
+                "|",
+                train["train_name"],
+                "|",
+                train["source_station"],
+                "->",
+                train["destination_station"]
+            )
+
+        # ----------------------------------------------------
+        # THIVIM -> KARNATAKA
+        # ----------------------------------------------------
+
+        print("\n" + "-" * 70)
+        print("TEST: Thivim -> Karnataka")
+        print("-" * 70)
+
+        result = route_search(
+            "Thivim",
+            "Karnataka",
+            10
+        )
+
+        print("Results:",
+              result.get("count", 0))
+
+        for train in result.get("results", []):
+
+            print(
+                train["train_number"],
+                "|",
+                train["train_name"],
+                "|",
+                train["source_station"],
+                "->",
+                train["destination_station"]
+            )
+
+        print("\n" + "=" * 70)
+        print("ALL TESTS COMPLETED")
+        print("=" * 70)
+
     except Exception as e:
-        print("Database error:", e)
 
-    print("\nTesting station search: Goa")
-
-    try:
-        results = station_search("Goa")
-
-        for row in results[:10]:
-            print(row)
-
-        print("Total:", len(results))
-
-    except Exception as e:
-        print("Error:", e)
-
-    print("\nTesting route: Madgaon → Pune")
-
-    try:
-        results = route_search("Madgaon", "Pune")
-
-        for row in results:
-            print(row)
-
-        print("Total:", len(results))
-
-    except Exception as e:
-        print("Error:", e)
-
-    print("\nTesting train stations: 12779")
-
-    try:
-        results = search_train_stations("12779")
-
-        for row in results[:10]:
-            print(row)
-
-        print("Total:", len(results))
-
-    except Exception as e:
-        print("Error:", e)
-
-    print("\n" + "=" * 60)
-    print("DONE")
-    print("=" * 60)
+        print("\nERROR:")
+        print(e)
